@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Peso — Weight Tracker</title>
+  <meta name="theme-color" content="#0b0f12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Peso">
+
+  <style>
+    :root {
+      --bg:#0b0f12; --panel:#11161b; --ink:#e8f0f3; --muted:#a6b3bb; --accent:#59d9a7;
+      --danger:#ff6b6b; --outline:#2b3a44;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:var(--bg); color:var(--ink);
+      font:16px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      display:flex; justify-content:center; padding:20px;
+    }
+    .wrap{ width:100%; max-width:720px; }
+    header{ text-align:center; margin-bottom:16px; }
+    h1{ font-size:28px; margin:0; }
+    .card{
+      background:var(--panel); border-radius:20px; padding:20px;
+      box-shadow:0 10px 30px rgba(0,0,0,.35); margin-bottom:16px;
+    }
+    label{ display:block; margin-bottom:10px; color:var(--muted); font-size:14px; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; }
+    input[type="date"], input[type="number"]{
+      width:100%; padding:14px; border-radius:12px; border:1px solid var(--outline);
+      background:#0e1317; color:var(--ink); font-size:16px;
+    }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .btn{
+      appearance:none; border:none; border-radius:14px; padding:16px 18px;
+      font-weight:700; font-size:18px; cursor:pointer;
+    }
+    .btn.primary{ background:var(--accent); color:#07110d; width:100%; box-shadow:0 6px 16px rgba(16,185,129,.35); }
+    .btn.sm{ font-size:14px; padding:10px 12px; border:1px solid var(--outline); background:#24313a; color:var(--ink); }
+    .btn.ghost{ background:transparent; color:var(--muted); border:1px solid var(--outline); }
+    .toolbar{ display:flex; gap:10px; flex-wrap:wrap; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ padding:10px 8px; border-bottom:1px solid var(--outline); font-size:15px; }
+    th{ text-align:left; color:var(--muted); font-weight:600; }
+    td.actions{ text-align:right; white-space:nowrap; }
+    .chip{ display:inline-block; padding:6px 10px; background:#1a2228; border:1px solid var(--outline); border-radius:999px; font-size:12px; color:var(--muted); }
+    .right{ text-align:right; }
+    .hint{ color:var(--muted); font-size:12px; }
+    .spacer{ height:4px; }
+    @media print {
+      body{ background:#fff; color:#000; }
+      .wrap{ max-width:100%; padding:0; }
+      header, .no-print{ display:none !important; }
+      .card{ box-shadow:none; border:0; }
+      table{ border:1px solid #000; }
+      th, td{ border-bottom:1px solid #000; }
+      h2.print-title{ display:block !important; font-size:22px; margin:0 0 10px 0; }
+      .print-date{ display:block !important; font-size:12px; margin-bottom:12px; }
+    }
+    h2.print-title, .print-date { display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🏋️‍♂️ Peso</h1>
+      <div class="chip" id="stats"></div>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <div style="flex:1 1 220px">
+          <label for="date">Date</label>
+          <input id="date" type="date" />
+        </div>
+        <div style="flex:1 1 160px">
+          <label for="weight">Weight (lb)</label>
+          <input id="weight" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 175.4" />
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <button id="save" class="btn primary">Save Entry</button>
+      <div class="spacer"></div>
+      <div class="toolbar no-print">
+        <button id="shareCsv" class="btn sm">Share / Email CSV</button>
+        <button id="downloadCsv" class="btn sm">Download CSV</button>
+        <button id="copyCsv" class="btn sm">Copy CSV</button>
+        <button id="printPdf" class="btn sm ghost">Print / Save PDF</button>
+        <button id="clearAll" class="btn sm ghost">Clear All</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="print-title">Peso — Weight Log</h2>
+      <div class="print-date" id="printDate"></div>
+      <table id="table">
+        <thead>
+          <tr>
+            <th style="width:40%">Date</th>
+            <th style="width:40%">Weight (lb)</th>
+            <th class="right no-print" style="width:20%">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    const KEY = 'peso_entries_v1';
+    const $ = (id)=>document.getElementById(id);
+
+    const dateInput = $('date');
+    const weightInput = $('weight');
+    const saveBtn = $('save');
+    const tbody = $('tbody');
+    const statsEl = $('stats');
+    const printDateEl = $('printDate');
+
+    const shareCsvBtn = $('shareCsv');
+    const downloadCsvBtn = $('downloadCsv');
+    const copyCsvBtn = $('copyCsv');
+    const printPdfBtn = $('printPdf');
+    const clearAllBtn = $('clearAll');
+
+    function todayISO(){
+      const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+      return (new Date(Date.now() - tzoffset)).toISOString().slice(0,10);
+    }
+
+    function load(){
+      try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+    }
+    function save(arr){
+      localStorage.setItem(KEY, JSON.stringify(arr));
+    }
+
+    let entries = load();
+
+    const toOneDecimal = (n)=> Math.round(parseFloat(n)*10)/10;
+    const fmtDate = (d)=> new Date(d + 'T12:00:00').toLocaleDateString(undefined, {year:'numeric', month:'short', day:'2-digit'});
+    function sortDesc(a,b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); }
+
+    function upsertEntry(date, weight){
+      const idx = entries.findIndex(e => e.date === date);
+      if (idx >= 0) entries[idx].weight = weight;
+      else entries.push({date, weight});
+      entries.sort(sortDesc);
+      save(entries);
+      render();
+    }
+
+    function deleteEntry(date){
+      entries = entries.filter(e => e.date !== date);
+      save(entries);
+      render();
+    }
+
+    function startEdit(date){
+      const e = entries.find(x => x.date === date);
+      if (!e) return;
+      dateInput.value = e.date;
+      weightInput.value = e.weight.toFixed(1);
+      weightInput.focus();
+    }
+
+    function render(){
+      const count = entries.length;
+      let latest = count ? entries[0].weight.toFixed(1) : '—';
+      statsEl.textContent = count ? `Entries: ${count} • Latest: ${latest} lb` : 'No entries yet';
+
+      printDateEl.textContent = `Exported on ${new Date().toLocaleString()}`;
+
+      tbody.innerHTML = entries.map(e => {
+        const d = fmtDate(e.date);
+        const w = e.weight.toFixed(1);
+        return `<tr>
+          <td>${d}</td>
+          <td>${w}</td>
+          <td class="right no-print">
+            <button class="btn sm" onclick="startEdit('${e.date}')">Edit</button>
+            <button class="btn sm" onclick="deleteEntry('${e.date}')">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function toCsv(){
+      const header = 'date,weight_lb\\n';
+      const rows = entries
+        .slice()
+        .sort((a,b)=> a.date.localeCompare(b.date))
+        .map(e => `${e.date},${e.weight.toFixed(1)}`)
+        .join('\\n');
+      return header + rows + (rows ? '\\n' : '');
+    }
+
+    function downloadCsv(){
+      const csv = toCsv();
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'peso-data.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    }
+
+    async function shareCsv(){
+      const csv = toCsv();
+      const file = new File([csv], 'peso-data.csv', {type:'text/csv'});
+      if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+        try { await navigator.share({ files:[file], title:'Peso Export', text:'Peso CSV export' }); }
+        catch(e){ }
+      } else {
+        const body = encodeURIComponent(csv);
+        location.href = `mailto:?subject=Peso%20CSV%20Export&body=${body}`;
+      }
+    }
+
+    async function copyCsv(){
+      try {
+        await navigator.clipboard.writeText(toCsv());
+        copyCsvBtn.textContent = 'Copied ✓';
+        setTimeout(()=>copyCsvBtn.textContent='Copy CSV', 900);
+      } catch(e){}
+    }
+
+    function printPdf(){ window.print(); }
+
+    function clearAll(){
+      if (!confirm('Delete all entries?')) return;
+      entries = [];
+      save(entries);
+      render();
+    }
+
+    dateInput.value = todayISO();
+    saveBtn.addEventListener('click', () => {
+      const date = dateInput.value;
+      const weight = toOneDecimal(weightInput.value);
+      if (!date) { alert('Please select a date'); return; }
+      if (!isFinite(weight) || weight <= 0) { alert('Enter a valid weight in pounds'); return; }
+      upsertEntry(date, weight);
+      weightInput.value = '';
+      if ('vibrate' in navigator) navigator.vibrate(10);
+    });
+
+    shareCsvBtn.addEventListener('click', shareCsv);
+    downloadCsvBtn.addEventListener('click', downloadCsv);
+    copyCsvBtn.addEventListener('click', copyCsv);
+    printPdfBtn.addEventListener('click', printPdf);
+    clearAllBtn.addEventListener('click', clearAll);
+
+    window.startEdit = startEdit;
+    window.deleteEntry = deleteEntry;
+
+    render();
+  </script>
+</body>
+</html>
